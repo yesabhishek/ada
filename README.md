@@ -12,7 +12,7 @@ It helps AI-heavy engineering teams inspect code semantically instead of only as
 
 ## Alpha Contract
 
-Ada `v0.1.0-alpha.1` is intentionally narrow:
+Ada `v0.1.0-alpha.2` is intentionally narrow:
 
 - Ada is a **Git sidecar**, not a full VCS replacement
 - supported languages are **Go** and **TypeScript/JavaScript**
@@ -129,7 +129,7 @@ Until the first release is tagged, local `go build` is the reliable path.
 - [Limitations](docs/limitations.md)
 - [FAQ](docs/faq.md)
 - [Alpha Roadmap](docs/alpha-roadmap.md)
-- [Release Notes: v0.1.0-alpha.1](docs/releases/v0.1.0-alpha.1.md)
+- [Release Notes: v0.1.0-alpha.2](docs/releases/v0.1.0-alpha.2.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
 

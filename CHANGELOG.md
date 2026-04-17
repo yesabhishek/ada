@@ -4,6 +4,20 @@ All notable changes to Ada will be documented in this file.
 
 The format is based on Keep a Changelog, and versioning is intended to follow Semantic Versioning once Ada reaches stable release status.
 
+## [v0.1.0-alpha.2] - 2026-04-17
+
+### Fixed
+
+- aligned the public module path and release metadata to `github.com/yesabhishek/ada`
+- fixed the install-script CI job so the local test server and installer run in the same workflow step
+- replaced the tag release workflow with native-runner multi-arch builds so Tree-sitter-backed binaries publish correctly for macOS and Linux
+- added automated GitHub release asset aggregation and Homebrew tap formula updates
+
+### Notes
+
+- `v0.1.0-alpha.2` is the first intended public release tag
+- `v0.1.0-alpha.1` was used to validate the initial publishing pipeline and exposed cross-platform release issues that are fixed here
+
 ## [v0.1.0-alpha.1] - 2026-04-17
 
 ### Added

@@ -75,25 +75,17 @@ jobs:
           mkdir -p release
           go build -ldflags "-X github.com/abhishek/ada/internal/buildinfo.Version=${VERSION}" -o release/ada ./cmd/ada
           tar -C release -czf "release/ada_${VERSION}_${OS}_${ARCH}.tar.gz" ada
-      - name: Serve release directory
-        shell: bash
-        run: |
-          python3 -m http.server 8787 --directory release >/tmp/ada-install-server.log 2>&1 &
-          echo $! > /tmp/ada-install-server.pid
-      - name: Run install script against local release
+      - name: Serve release directory and run install script
         shell: bash
         run: |
           set -euo pipefail
+          python3 -m http.server 8787 --directory release >/tmp/ada-install-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" || true' EXIT
+          sleep 1
           VERSION="$(cat VERSION)"
           export ADA_INSTALL_BASE_URL="http://127.0.0.1:8787"
           export ADA_INSTALL_VERSION="$VERSION"
           export ADA_INSTALL_BIN_DIR="$RUNNER_TEMP/ada-bin"
           ./scripts/install.sh
           "$RUNNER_TEMP/ada-bin/ada" version
-      - name: Stop release server
-        if: always()
-        shell: bash
-        run: |
-          if [ -f /tmp/ada-install-server.pid ]; then
-            kill "$(cat /tmp/ada-install-server.pid)" || true
-          fi

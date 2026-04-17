@@ -6,22 +6,143 @@ on:
       - "v*"
 
 jobs:
-  goreleaser:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+  build-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - runner: macos-13
+            goos: darwin
+            goarch: amd64
+          - runner: macos-14
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: goreleaser/goreleaser-action@v6
+      - name: Build release archive
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          PACKAGE_DIR="${RUNNER_TEMP}/package"
+          mkdir -p "${PACKAGE_DIR}"
+          go build \
+            -ldflags "-s -w -X github.com/yesabhishek/ada/internal/buildinfo.Version=${VERSION} -X github.com/yesabhishek/ada/internal/buildinfo.Commit=${GITHUB_SHA} -X github.com/yesabhishek/ada/internal/buildinfo.Date=${DATE}" \
+            -o "${PACKAGE_DIR}/ada" ./cmd/ada
+          cp README.md LICENSE CHANGELOG.md "${PACKAGE_DIR}/"
+          ARCHIVE="ada_${VERSION}_${{ matrix.goos }}_${{ matrix.goarch }}.tar.gz"
+          tar -C "${PACKAGE_DIR}" -czf "${RUNNER_TEMP}/${ARCHIVE}" ada README.md LICENSE CHANGELOG.md
+          echo "archive=${RUNNER_TEMP}/${ARCHIVE}" >> "${GITHUB_OUTPUT}"
+      - uses: actions/upload-artifact@v4
         with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+
+  publish-release:
+    needs: build-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: release-*
+          merge-multiple: true
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ada_*.tar.gz > SHA256SUMS.txt
+      - name: Create or update GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          NOTES_FILE="docs/releases/${TAG}.md"
+          if [ ! -f "${NOTES_FILE}" ]; then
+            NOTES_FILE="$(mktemp)"
+            printf 'Ada %s\n' "${TAG}" > "${NOTES_FILE}"
+          fi
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" dist/* --clobber
+          else
+            gh release create "${TAG}" dist/* \
+              --title "Ada ${TAG}" \
+              --notes-file "${NOTES_FILE}" \
+              --prerelease \
+              --verify-tag
+          fi
+
+  update-homebrew-tap:
+    needs: publish-release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+    steps:
+      - name: Compute source archive checksum
+        id: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          URL="https://github.com/yesabhishek/ada/archive/refs/tags/${TAG}.tar.gz"
+          SHA="$(curl -fsSL "${URL}" | sha256sum | awk '{print $1}')"
+          echo "url=${URL}" >> "${GITHUB_OUTPUT}"
+          echo "sha=${SHA}" >> "${GITHUB_OUTPUT}"
+      - name: Update formula in tap repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAP_DIR="${RUNNER_TEMP}/homebrew-ada"
+          gh repo clone yesabhishek/homebrew-ada "${TAP_DIR}"
+          cd "${TAP_DIR}"
+          mkdir -p Formula
+          cat > Formula/ada.rb <<EOF
+          class Ada < Formula
+            desc "Semantic sidecar for Git repositories"
+            homepage "https://github.com/yesabhishek/ada"
+            url "${{ steps.source.outputs.url }}"
+            sha256 "${{ steps.source.outputs.sha }}"
+            license "Apache-2.0"
+            depends_on "go" => :build
+
+            def install
+              ldflags = %W[
+                -s -w
+                -X github.com/yesabhishek/ada/internal/buildinfo.Version=#{version}
+              ]
+              system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/ada"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/ada version")
+            end
+          end
+          EOF
+          git config user.name "ada-release-bot"
+          git config user.email "release-bot@users.noreply.github.com"
+          git add Formula/ada.rb
+          if git diff --cached --quiet; then
+            echo "No Homebrew tap changes to publish."
+            exit 0
+          fi
+          git commit -m "Update ada formula for ${GITHUB_REF_NAME}"
+          git push origin main

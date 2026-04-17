@@ -1,6 +1,6 @@
 # Limitations
 
-Ada `v0.1.0-alpha.1` is intentionally limited.
+Ada `v0.1.0-alpha.2` is intentionally limited.
 
 ## Product Limits
 
