@@ -1,0 +1,11 @@
+.ada/
+bin/
+dist/
+release/
+coverage.out
+*.test
+.DS_Store
+*.tar.gz
+*.tgz
+*.zip
+SHA256SUMS*

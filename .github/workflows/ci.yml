@@ -1,0 +1,99 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go test ./...
+
+  smoke-release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - runner: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
+          - runner: macos-13
+            goos: darwin
+            goarch: amd64
+          - runner: macos-14
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go build -o bin/ada ./cmd/ada
+      - run: ./scripts/smoke-release.sh ./bin/ada
+
+  install-script:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build local release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(cat VERSION)"
+          OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            x86_64) ARCH=amd64 ;;
+            arm64|aarch64) ARCH=arm64 ;;
+          esac
+          mkdir -p release
+          go build -ldflags "-X github.com/abhishek/ada/internal/buildinfo.Version=${VERSION}" -o release/ada ./cmd/ada
+          tar -C release -czf "release/ada_${VERSION}_${OS}_${ARCH}.tar.gz" ada
+      - name: Serve release directory
+        shell: bash
+        run: |
+          python3 -m http.server 8787 --directory release >/tmp/ada-install-server.log 2>&1 &
+          echo $! > /tmp/ada-install-server.pid
+      - name: Run install script against local release
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(cat VERSION)"
+          export ADA_INSTALL_BASE_URL="http://127.0.0.1:8787"
+          export ADA_INSTALL_VERSION="$VERSION"
+          export ADA_INSTALL_BIN_DIR="$RUNNER_TEMP/ada-bin"
+          ./scripts/install.sh
+          "$RUNNER_TEMP/ada-bin/ada" version
+      - name: Stop release server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/ada-install-server.pid ]; then
+            kill "$(cat /tmp/ada-install-server.pid)" || true
+          fi

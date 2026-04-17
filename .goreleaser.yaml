@@ -1,0 +1,57 @@
+version: 2
+
+project_name: ada
+
+before:
+  hooks:
+    - go test ./...
+
+builds:
+  - id: ada
+    main: ./cmd/ada
+    binary: ada
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/yesabhishek/ada/internal/buildinfo.Version={{ .Version }}
+      - -X github.com/yesabhishek/ada/internal/buildinfo.Commit={{ .Commit }}
+      - -X github.com/yesabhishek/ada/internal/buildinfo.Date={{ .Date }}
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+
+checksum:
+  name_template: "SHA256SUMS.txt"
+
+release:
+  prerelease: auto
+
+brews:
+  - repository:
+      owner: yesabhishek
+      name: homebrew-ada
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/yesabhishek/ada"
+    description: "Semantic sidecar for Git repositories"
+    license: "Apache-2.0"
+    commit_author:
+      name: "ada-release-bot"
+      email: "release-bot@users.noreply.github.com"
+    install: |
+      bin.install "ada"
+    test: |
+      system "#{bin}/ada", "version"
